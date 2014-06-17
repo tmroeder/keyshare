@@ -51,19 +51,19 @@ func shareKey(shareCount int, key []byte) ([][]byte, error) {
 		return nil, errors.New("Can't create a non-positive number of shares")
 	}
 
-  shares := make([][]byte, shareCount)
+	shares := make([][]byte, shareCount)
 	keySize := len(key)
 
 	for i, _ := range shares {
 		shares[i] = make([]byte, keySize)
 		if i < shareCount-1 {
 			// Read a random value into this share.
-      if _, err := io.ReadFull(rand.Reader, shares[i]); err != nil {
+			if _, err := io.ReadFull(rand.Reader, shares[i]); err != nil {
 				return nil, err
 			}
 		} else {
-      // Note that all memory starts zeroed in Go, so this doesn't need the
-      // equivalent of memset for the final share.
+			// Note that all memory starts zeroed in Go, so this doesn't need the
+			// equivalent of memset for the final share.
 			for j, s := range shares {
 				if j < shareCount-1 {
 					for k, b := range s {
@@ -84,7 +84,7 @@ func shareKey(shareCount int, key []byte) ([][]byte, error) {
 
 // assembleShares takes all the shares and XORs them together to get the key.
 func assembleShares(shares [][]byte) ([]byte, error) {
-  key := make([]byte, len(shares[0]))
+	key := make([]byte, len(shares[0]))
 
 	for _, share := range shares {
 		for j, b := range share {
@@ -122,7 +122,7 @@ func encryptAndShare(shareCount int, plaintext []byte) ([]byte, [][]byte, error)
 	aesKeyLength256 := 2 * aes.BlockSize
 	keySize := aesKeyLength256 + sha512.Size
 	key := make([]byte, keySize)
-  if _, err := io.ReadFull(rand.Reader, key); err != nil {
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
 		return nil, nil, err
 	}
 
@@ -168,9 +168,9 @@ func encryptAndShare(shareCount int, plaintext []byte) ([]byte, [][]byte, error)
 	var abuf bytes.Buffer
 	aencoder := gob.NewEncoder(&abuf)
 	err = aencoder.Encode(ac)
-  authenticatedCiphertext := abuf.Bytes()
+	authenticatedCiphertext := abuf.Bytes()
 
-  shares, err := shareKey(shareCount, key)
+	shares, err := shareKey(shareCount, key)
 
 	return authenticatedCiphertext, shares, nil
 }
@@ -224,7 +224,7 @@ func assembleAndDecrypt(authenticatedCiphertext []byte, shares [][]byte) ([]byte
 	}
 
 	stream := cipher.NewCTR(block, c.IV)
-  plaintext := make([]byte, len(c.Enciphered))
+	plaintext := make([]byte, len(c.Enciphered))
 	stream.XORKeyStream(plaintext, c.Enciphered)
 
 	return plaintext, nil
