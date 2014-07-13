@@ -15,77 +15,126 @@
 package keyshare
 
 import (
-  "fmt"
-  "testing"
+	"crypto/rand"
+	"fmt"
+	"testing"
 
-  "code.google.com/p/rsc/gf256"
+	"code.google.com/p/rsc/gf256"
 )
 
 func TestShareByte(t *testing.T) {
-  var b byte = 137
+	var b byte = 137
 
-  // Use the Reed-Solomon field for testing.
-  f := gf256.NewField(0x11d, 2)
+	// Use the Reed-Solomon field for testing.
+	f := gf256.NewField(0x11d, 2)
 
-  ys, err := ShareByte(f, b, 2, 3)
-  if err != nil {
-    t.Fatal(err.Error())
-  }
+	ys, err := ShareByte(f, b, 2, 3)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-  xs := []byte{1, 2, 3}
-  b2, err := RecoverByte(f, xs, ys)
-  if err != nil {
-    t.Fatal(err.Error())
-  }
+	xs := []byte{1, 2, 3}
+	b2, err := RecoverByte(f, xs, ys)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-  fmt.Println("Byte", b, ", shares", ys)
-  if b != b2 {
-    t.Fatal("Recovered incorrect byte")
-  }
+	fmt.Println("Byte", b, ", shares", ys)
+	if b != b2 {
+		t.Fatal("Recovered incorrect byte")
+	}
 
-  b3, err := RecoverByte(f, xs[:2], ys[:2])
-  if err != nil {
-    t.Fatal(err.Error())
-  }
+	b3, err := RecoverByte(f, xs[:2], ys[:2])
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-  if b != b3 {
-    t.Fatal("Couldn't recover the byte with exactly t shares")
-  }
+	if b != b3 {
+		t.Fatal("Couldn't recover the byte with exactly t shares")
+	}
 
-  b4, err := RecoverByte(f, xs[:1], ys[:1])
-  if err != nil {
-    t.Fatal("The recovery process failed with only one share")
-  }
+	b4, err := RecoverByte(f, xs[:1], ys[:1])
+	if err != nil {
+		t.Fatal("The recovery process failed with only one share")
+	}
 
-  fmt.Println("Recovered byte", b4)
+	fmt.Println("Recovered byte", b4)
 
-  if b == b4 {
-    t.Fatal("Incorrectly recovered the right value with too few shares")
-  }
+	if b == b4 {
+		t.Fatal("Incorrectly recovered the right value with too few shares")
+	}
 }
 
 func TestManyShares(t *testing.T) {
-  var b byte = 136
+	var b byte = 136
 
-  // Use the Reed-Solomon field for testing.
-  f := gf256.NewField(0x11d, 2)
+	// Use the Reed-Solomon field for testing.
+	f := gf256.NewField(0x11d, 2)
 
-  ys, err := ShareByte(f, b, 255, 255)
-  if err != nil {
-    t.Fatal(err.Error())
-  }
+	ys, err := ShareByte(f, b, 255, 255)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-  xs := make([]byte, 255)
-  for i := range xs {
-    xs[i] = byte(i + 1)
-  }
+	xs := make([]byte, 255)
+	for i := range xs {
+		xs[i] = byte(i + 1)
+	}
 
-  b2, err := RecoverByte(f, xs, ys)
-  if err != nil {
-    t.Fatal(err.Error())
-  }
+	b2, err := RecoverByte(f, xs, ys)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-  if b != b2 {
-    t.Fatal("Recovered incorrect byte")
-  }
+	if b != b2 {
+		t.Fatal("Recovered incorrect byte")
+	}
+}
+
+func TestShareSlice(t *testing.T) {
+	b := make([]byte, 137)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err.Error())
+	}
+
+	// Use the Reed-Solomon field for testing.
+	f := gf256.NewField(0x11d, 2)
+
+	shares, err := ShareSlice(f, b, 3, 5)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	b2, err := RecoverSlice(f, shares)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	if len(b2) != len(b) {
+		t.Fatal("Invalid recovered length")
+	}
+
+	for i := range b {
+		if b[i] != b2[i] {
+			t.Fatal("Incorrect recovered bytes")
+		}
+	}
+
+	// Recover with only 3 of the 5 shares.
+	b3, err := RecoverSlice(f, shares[1:4])
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	if len(b3) != len(b) {
+		t.Fatal("Invalid recovered length")
+	}
+
+	for i := range b {
+		if b[i] != b3[i] {
+			t.Fatal("Incorrect recovered bytes")
+		}
+	}
+
+	fmt.Println("Got shares", shares)
 }
