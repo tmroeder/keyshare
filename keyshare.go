@@ -40,23 +40,43 @@ func zeroSlice(slice []byte) {
 	}
 }
 
+// A ByteSharer shares and reassembles a byte stream.
+type ByteSharer interface {
+	Share([]byte) ([][]byte, error)
+	Reassemble([][]byte) ([]byte, error)
+}
+
+// a fullSharer uses XOR-based (n, n) secret sharing to produce n shares.
+type fullSharer struct {
+	shareCount int
+}
+
+// NewXORSharer creates an (n, n) secret sharer.
+func NewXORSharer(n int) (ByteSharer, error) {
+	if n <= 0 {
+		return nil, errors.New("Must have 1 or more shares")
+	}
+
+	return &fullSharer{n}, nil
+}
+
 // shareKey splits the key into shareCount shares using (n, n) secret sharing.
 // First, choose n-1 shares at random. Then compute the nth share as
 // share_1 XOR share_2 XOR ... XOR share_{n-1} XOR key.
 // This guarantees that a shareholder gets zero information (statistically)
 // from the share they hold, but that the combination of all 4 shares by XOR
 // is the key.
-func shareKey(shareCount int, key []byte) ([][]byte, error) {
-	if shareCount <= 0 {
+func (f *fullSharer) Share(key []byte) ([][]byte, error) {
+	if f.shareCount <= 0 {
 		return nil, errors.New("Can't create a non-positive number of shares")
 	}
 
-	shares := make([][]byte, shareCount)
+	shares := make([][]byte, f.shareCount)
 	keySize := len(key)
 
 	for i, _ := range shares {
 		shares[i] = make([]byte, keySize)
-		if i < shareCount-1 {
+		if i < f.shareCount-1 {
 			// Read a random value into this share.
 			if _, err := io.ReadFull(rand.Reader, shares[i]); err != nil {
 				return nil, err
@@ -65,7 +85,7 @@ func shareKey(shareCount int, key []byte) ([][]byte, error) {
 			// Note that all memory starts zeroed in Go, so this doesn't need the
 			// equivalent of memset for the final share.
 			for j, s := range shares {
-				if j < shareCount-1 {
+				if j < f.shareCount-1 {
 					for k, b := range s {
 						shares[i][k] = shares[i][k] ^ b
 					}
@@ -83,7 +103,7 @@ func shareKey(shareCount int, key []byte) ([][]byte, error) {
 }
 
 // assembleShares takes all the shares and XORs them together to get the key.
-func assembleShares(shares [][]byte) ([]byte, error) {
+func (f *fullSharer) Reassemble(shares [][]byte) ([]byte, error) {
 	key := make([]byte, len(shares[0]))
 
 	for _, share := range shares {
@@ -112,7 +132,7 @@ type AuthCiphertext struct {
 // encryptAndSharePlaintext generates a fresh key, uses it to encrypt the
 // plaintext, shares the key, zeroes it, and returns the ciphertext and the key
 // shares to be distributed.
-func encryptAndShare(shareCount int, plaintext []byte) ([]byte, [][]byte, error) {
+func encryptAndShare(sharer ByteSharer, plaintext []byte) ([]byte, [][]byte, error) {
 	// We generate our secret, random key from /dev/urandom. No, really. It's OK.
 	// On any system you trust enough to run this program, the output from
 	// /dev/urandom will be strong enough for cryptographic purposes.
@@ -170,16 +190,16 @@ func encryptAndShare(shareCount int, plaintext []byte) ([]byte, [][]byte, error)
 	err = aencoder.Encode(ac)
 	authenticatedCiphertext := abuf.Bytes()
 
-	shares, err := shareKey(shareCount, key)
+	shares, err := sharer.Share(key)
 
 	return authenticatedCiphertext, shares, nil
 }
 
 // assembleAndDecrypt reassembles a key from a set of shares and uses this key
 // to authenticate and decrypt a ciphertext.
-func assembleAndDecrypt(authenticatedCiphertext []byte, shares [][]byte) ([]byte, error) {
-	// Assemble the key and use that to check the HMAC
-	key, err := assembleShares(shares)
+func assembleAndDecrypt(sharer ByteSharer, authenticatedCiphertext []byte, shares [][]byte) ([]byte, error) {
+	// Reassemble the key and use that to check the HMAC
+	key, err := sharer.Reassemble(shares)
 	if err != nil {
 		return nil, err
 	}
@@ -234,14 +254,14 @@ func assembleAndDecrypt(authenticatedCiphertext []byte, shares [][]byte) ([]byte
 // ciphertext, a share file for the shares, and the number of shares to create
 // and creates a file encrypted with a fresh key. This key is then shared into
 // shareCount pieces.
-func EncryptFile(plaintextFile, ciphertextFile, shareFile string, shareCount int) error {
+func EncryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSharer) error {
 	secretData, err := ioutil.ReadFile(plaintextFile)
 	if err != nil {
 		return err
 	}
 	defer zeroSlice(secretData)
 
-	ciphertext, shares, err := encryptAndShare(shareCount, secretData)
+	ciphertext, shares, err := encryptAndShare(sharer, secretData)
 	for _, s := range shares {
 		defer zeroSlice(s)
 	}
@@ -273,7 +293,7 @@ func EncryptFile(plaintextFile, ciphertextFile, shareFile string, shareCount int
 // DecryptFile takes in the name of a output file, a file to decrypt, and a file
 // of shares, one per line. It decrypts the encrypted file into the output file
 // or reports an error.
-func DecryptFile(plaintextFile, ciphertextFile, shareFile string) error {
+func DecryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSharer) error {
 	// Get the shares from the file.
 	sharesString, err := ioutil.ReadFile(shareFile)
 	if err != nil {
@@ -297,7 +317,7 @@ func DecryptFile(plaintextFile, ciphertextFile, shareFile string) error {
 
 	cipherBytes := make([]byte, encoding.DecodedLen(len(ciphertext)))
 	_, err = encoding.Decode(cipherBytes, ciphertext)
-	plaintext, err := assembleAndDecrypt(cipherBytes, shares)
+	plaintext, err := assembleAndDecrypt(sharer, cipherBytes, shares)
 	if err != nil {
 		return err
 	}

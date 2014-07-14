@@ -53,13 +53,18 @@ func shareKeyHelper(count, length int) bool {
 		return false
 	}
 
-	shares, err := shareKey(realCount, key)
+	bs, err := NewXORSharer(realCount)
+	if err != nil {
+		return false
+	}
+
+	shares, err := bs.Share(key)
 	if err != nil {
 		// This is OK if we asked for 0 shares
 		return realCount == 0
 	}
 
-	reassembledKey, err := assembleShares(shares)
+	reassembledKey, err := bs.Reassemble(shares)
 	if err != nil {
 		return false
 	}
@@ -78,8 +83,14 @@ func shareKeyHelper(count, length int) bool {
 }
 
 func TestShareKey(t *testing.T) {
-	if err := quick.Check(shareKeyHelper, nil); err != nil {
-		t.Error(err)
+	if testing.Short() {
+		if !shareKeyHelper(20, 100) {
+			t.Fatal("Couldn't share the key")
+		}
+	} else {
+		if err := quick.Check(shareKeyHelper, nil); err != nil {
+			t.Error(err)
+		}
 	}
 }
 
@@ -100,12 +111,17 @@ func encryptHelper(count, length int) bool {
 		return false
 	}
 
-	authEncrypted, shares, err := encryptAndShare(realCount, plaintext)
+	bs, err := NewXORSharer(realCount)
 	if err != nil {
 		return false
 	}
 
-	decrypted, err := assembleAndDecrypt(authEncrypted, shares)
+	authEncrypted, shares, err := encryptAndShare(bs, plaintext)
+	if err != nil {
+		return false
+	}
+
+	decrypted, err := assembleAndDecrypt(bs, authEncrypted, shares)
 	if err != nil {
 		return false
 	}
@@ -124,8 +140,14 @@ func encryptHelper(count, length int) bool {
 }
 
 func TestEncryptAndShare(t *testing.T) {
-	if err := quick.Check(encryptHelper, nil); err != nil {
-		t.Error(err)
+	if testing.Short() {
+		if !encryptHelper(10, 1024*1024) {
+			t.Fatal("Couldn't encrypt a 1MB plaintext")
+		}
+	} else {
+		if err := quick.Check(encryptHelper, nil); err != nil {
+			t.Error(err)
+		}
 	}
 }
 
@@ -163,7 +185,12 @@ func encryptFileHelper(count, length int, failure bool) bool {
 		return false
 	}
 
-	if err := EncryptFile(plaintextFile, ciphertextFile, sharesFile, realCount); err != nil {
+	bs, err := NewXORSharer(realCount)
+	if err != nil {
+		return false
+	}
+
+	if err := EncryptFile(plaintextFile, ciphertextFile, sharesFile, bs); err != nil {
 		return false
 	}
 
@@ -184,7 +211,7 @@ func encryptFileHelper(count, length int, failure bool) bool {
 		}
 	}
 
-	if err := DecryptFile(decryptedFile, ciphertextFile, sharesFile); err != nil {
+	if err := DecryptFile(decryptedFile, ciphertextFile, sharesFile, bs); err != nil {
 		return failure
 	} else if failure {
 		return false
@@ -209,7 +236,13 @@ func encryptFileHelper(count, length int, failure bool) bool {
 }
 
 func TestEncryptFile(t *testing.T) {
-	if err := quick.Check(encryptFileHelper, nil); err != nil {
-		t.Error(err)
+	if testing.Short() {
+		if !encryptFileHelper(10, 1024*1024, false) {
+			t.Fatal("Couldn't encrypt a 1MB plaintext")
+		}
+	} else {
+		if err := quick.Check(encryptFileHelper, nil); err != nil {
+			t.Error(err)
+		}
 	}
 }

@@ -18,23 +18,26 @@ import (
 	"crypto/rand"
 	"fmt"
 	"testing"
-
-	"code.google.com/p/rsc/gf256"
 )
 
 func TestShareByte(t *testing.T) {
 	var b byte = 137
 
-	// Use the Reed-Solomon field for testing.
-	f := gf256.NewField(0x11d, 2)
+	bs, err := NewThresholdSharer(2, 3)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	ys, err := ShareByte(f, b, 2, 3)
+	ss := bs.(*shamirSharer)
+
+	// IAH: port the tests to be separate and to use the new framework
+	ys, err := ss.shareByte(b)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 
 	xs := []byte{1, 2, 3}
-	b2, err := RecoverByte(f, xs, ys)
+	b2, err := ss.recoverByte(xs, ys)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -44,7 +47,7 @@ func TestShareByte(t *testing.T) {
 		t.Fatal("Recovered incorrect byte")
 	}
 
-	b3, err := RecoverByte(f, xs[:2], ys[:2])
+	b3, err := ss.recoverByte(xs[:2], ys[:2])
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -53,7 +56,7 @@ func TestShareByte(t *testing.T) {
 		t.Fatal("Couldn't recover the byte with exactly t shares")
 	}
 
-	b4, err := RecoverByte(f, xs[:1], ys[:1])
+	b4, err := ss.recoverByte(xs[:1], ys[:1])
 	if err != nil {
 		t.Fatal("The recovery process failed with only one share")
 	}
@@ -68,10 +71,14 @@ func TestShareByte(t *testing.T) {
 func TestManyShares(t *testing.T) {
 	var b byte = 136
 
-	// Use the Reed-Solomon field for testing.
-	f := gf256.NewField(0x11d, 2)
+	bs, err := NewThresholdSharer(255, 255)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	ys, err := ShareByte(f, b, 255, 255)
+	ss := bs.(*shamirSharer)
+
+	ys, err := ss.shareByte(b)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -81,7 +88,7 @@ func TestManyShares(t *testing.T) {
 		xs[i] = byte(i + 1)
 	}
 
-	b2, err := RecoverByte(f, xs, ys)
+	b2, err := ss.recoverByte(xs, ys)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -97,15 +104,17 @@ func TestShareSlice(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	// Use the Reed-Solomon field for testing.
-	f := gf256.NewField(0x11d, 2)
-
-	shares, err := ShareSlice(f, b, 3, 5)
+	bs, err := NewThresholdSharer(3, 5)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 
-	b2, err := RecoverSlice(f, shares)
+	shares, err := bs.Share(b)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	b2, err := bs.Reassemble(shares)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -121,7 +130,7 @@ func TestShareSlice(t *testing.T) {
 	}
 
 	// Recover with only 3 of the 5 shares.
-	b3, err := RecoverSlice(f, shares[1:4])
+	b3, err := bs.Reassemble(shares[1:4])
 	if err != nil {
 		t.Fatal(err.Error())
 	}

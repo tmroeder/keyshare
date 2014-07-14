@@ -21,8 +21,15 @@ import (
 	"code.google.com/p/rsc/gf256"
 )
 
-// ShareByte generates a (t, n) secret sharing for byte b over GF(256).
-func ShareByte(f *gf256.Field, b byte, t, n int) ([]byte, error) {
+// A shamirSharer performs byte-wise (t, n) threshold secret sharing using
+// GF(256).
+type shamirSharer struct {
+	f *gf256.Field
+	t int
+	n int
+}
+
+func NewThresholdSharer(t, n int) (ByteSharer, error) {
 	if t > 255 {
 		return nil, errors.New("can't have more than 255 shares")
 	}
@@ -35,8 +42,20 @@ func ShareByte(f *gf256.Field, b byte, t, n int) ([]byte, error) {
 		return nil, errors.New("must require at least one share")
 	}
 
+	ss := new(shamirSharer)
+	ss.t = t
+	ss.n = n
+
+	// We use the Reed-Solomon field for the byte-wise secret-sharing operation.
+	ss.f = gf256.NewField(0x11d, 2)
+	return ss, nil
+}
+
+// shareByte generates a (t, n) secret sharing for byte b over GF(256).
+func (ss *shamirSharer) shareByte(b byte) ([]byte, error) {
+
 	// Choose t - 1 random non-zero bytes
-	coeff := make([]byte, t)
+	coeff := make([]byte, ss.t)
 	coeff[0] = b
 
 	for i := range coeff {
@@ -50,16 +69,16 @@ func ShareByte(f *gf256.Field, b byte, t, n int) ([]byte, error) {
 	}
 
 	// Evaluate the polynomial at 1, 2, .., n
-	ys := make([]byte, n)
-	for i := 1; i <= n; i++ {
-		ys[i-1] = EvaluatePoly(coeff, byte(i), f)
+	ys := make([]byte, ss.n)
+	for i := 1; i <= ss.n; i++ {
+		ys[i-1] = evaluatePoly(coeff, byte(i), ss.f)
 	}
 
 	return ys, nil
 }
 
-// EvaluatePoly evaluates a polynomial with coefficients in GF(256).
-func EvaluatePoly(poly []byte, v byte, f *gf256.Field) byte {
+// evaluatePoly evaluates a polynomial with coefficients in GF(256).
+func evaluatePoly(poly []byte, v byte, f *gf256.Field) byte {
 	var pow byte = 1
 	var acc byte = 0
 	for _, b := range poly {
@@ -70,9 +89,9 @@ func EvaluatePoly(poly []byte, v byte, f *gf256.Field) byte {
 	return acc
 }
 
-// RecoverByte uses the given xs and ys to recover the original byte using
+// recoverByte uses the given xs and ys to recover the original byte using
 // Lagrange polynomial interpolation.
-func RecoverByte(f *gf256.Field, xs, ys []byte) (byte, error) {
+func (ss *shamirSharer) recoverByte(xs, ys []byte) (byte, error) {
 	if len(xs) != len(ys) {
 		return 0, errors.New("inconsistent array counts")
 	}
@@ -86,29 +105,29 @@ func RecoverByte(f *gf256.Field, xs, ys []byte) (byte, error) {
 		xi := xs[i]
 		for j, xj := range xs {
 			if j != i {
-				p := f.Mul(xj, f.Inv(f.Add(xi, xj)))
-				prod = f.Mul(prod, p)
+				p := ss.f.Mul(xj, ss.f.Inv(ss.f.Add(xi, xj)))
+				prod = ss.f.Mul(prod, p)
 			}
 		}
 
-		acc = f.Add(acc, f.Mul(yi, prod))
+		acc = ss.f.Add(acc, ss.f.Mul(yi, prod))
 	}
 
 	return acc, nil
 }
 
-// ShareSlice uses Shamir secret sharing to encode a slice of bytes into n
+// Share uses Shamir secret sharing to encode a slice of bytes into n
 // shares, any t of which can reconstruct the secret.
-func ShareSlice(f *gf256.Field, bs []byte, t, n int) ([][]byte, error) {
+func (ss *shamirSharer) Share(bs []byte) ([][]byte, error) {
 	// Create the shares and assign each a share number.
-	shares := make([][]byte, n)
+	shares := make([][]byte, ss.n)
 	for j := range shares {
 		shares[j] = make([]byte, len(bs)+1)
 		shares[j][0] = byte(j + 1)
 	}
 
 	for i, b := range bs {
-		byteShares, err := ShareByte(f, b, t, n)
+		byteShares, err := ss.shareByte(b)
 		if err != nil {
 			return nil, err
 		}
@@ -121,9 +140,9 @@ func ShareSlice(f *gf256.Field, bs []byte, t, n int) ([][]byte, error) {
 	return shares, nil
 }
 
-// RecoverSlice takes in a set of shares and reconstructs each byte using Shamir
+// Reassemble takes in a set of shares and reconstructs each byte using Shamir
 // secret sharing.
-func RecoverSlice(f *gf256.Field, shares [][]byte) ([]byte, error) {
+func (ss *shamirSharer) Reassemble(shares [][]byte) ([]byte, error) {
 	xs := make([]byte, len(shares))
 	ys := make([]byte, len(shares))
 	l := len(shares[0])
@@ -145,7 +164,7 @@ func RecoverSlice(f *gf256.Field, shares [][]byte) ([]byte, error) {
 		}
 
 		var err error
-		secret[i-1], err = RecoverByte(f, xs, ys)
+		secret[i-1], err = ss.recoverByte(xs, ys)
 		if err != nil {
 			return nil, err
 		}
