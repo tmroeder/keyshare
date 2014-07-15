@@ -16,7 +16,6 @@ package keyshare
 
 import (
 	"crypto/rand"
-	"fmt"
 	"testing"
 )
 
@@ -42,7 +41,6 @@ func TestShareByte(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	fmt.Println("Byte", b, ", shares", ys)
 	if b != b2 {
 		t.Fatal("Recovered incorrect byte")
 	}
@@ -60,8 +58,6 @@ func TestShareByte(t *testing.T) {
 	if err != nil {
 		t.Fatal("The recovery process failed with only one share")
 	}
-
-	fmt.Println("Recovered byte", b4)
 
 	if b == b4 {
 		t.Fatal("Incorrectly recovered the right value with too few shares")
@@ -144,6 +140,4 @@ func TestShareSlice(t *testing.T) {
 			t.Fatal("Incorrect recovered bytes")
 		}
 	}
-
-	fmt.Println("Got shares", shares)
 }

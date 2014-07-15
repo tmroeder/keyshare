@@ -60,6 +60,11 @@ func NewXORSharer(n int) (ByteSharer, error) {
 	return &fullSharer{n}, nil
 }
 
+const (
+	XOR byte = iota
+	Threshold
+)
+
 // shareKey splits the key into shareCount shares using (n, n) secret sharing.
 // First, choose n-1 shares at random. Then compute the nth share as
 // share_1 XOR share_2 XOR ... XOR share_{n-1} XOR key.
@@ -75,10 +80,11 @@ func (f *fullSharer) Share(key []byte) ([][]byte, error) {
 	keySize := len(key)
 
 	for i, _ := range shares {
-		shares[i] = make([]byte, keySize)
+		shares[i] = make([]byte, keySize+1)
+		shares[i][0] = XOR
 		if i < f.shareCount-1 {
 			// Read a random value into this share.
-			if _, err := io.ReadFull(rand.Reader, shares[i]); err != nil {
+			if _, err := io.ReadFull(rand.Reader, shares[i][1:]); err != nil {
 				return nil, err
 			}
 		} else {
@@ -86,15 +92,15 @@ func (f *fullSharer) Share(key []byte) ([][]byte, error) {
 			// equivalent of memset for the final share.
 			for j, s := range shares {
 				if j < f.shareCount-1 {
-					for k, b := range s {
-						shares[i][k] = shares[i][k] ^ b
+					for k := 1; k < len(s); k++ {
+						shares[i][k] = shares[i][k] ^ s[k]
 					}
 				}
 			}
 
 			// XOR in the key.
-			for k, _ := range shares[i] {
-				shares[i][k] = shares[i][k] ^ key[k]
+			for k := 1; k < len(shares[i]); k++ {
+				shares[i][k] = shares[i][k] ^ key[k-1]
 			}
 		}
 	}
@@ -104,11 +110,15 @@ func (f *fullSharer) Share(key []byte) ([][]byte, error) {
 
 // assembleShares takes all the shares and XORs them together to get the key.
 func (f *fullSharer) Reassemble(shares [][]byte) ([]byte, error) {
-	key := make([]byte, len(shares[0]))
+	key := make([]byte, len(shares[0])-1)
 
 	for _, share := range shares {
-		for j, b := range share {
-			key[j] = key[j] ^ b
+		if share[0] != XOR {
+			return nil, errors.New("Bad share type")
+		}
+
+		for j := 1; j < len(share); j++ {
+			key[j-1] = key[j-1] ^ share[j]
 		}
 	}
 

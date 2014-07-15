@@ -122,8 +122,11 @@ func (ss *shamirSharer) Share(bs []byte) ([][]byte, error) {
 	// Create the shares and assign each a share number.
 	shares := make([][]byte, ss.n)
 	for j := range shares {
-		shares[j] = make([]byte, len(bs)+1)
-		shares[j][0] = byte(j + 1)
+		shares[j] = make([]byte, len(bs)+2)
+
+		// The first byte is the share type, and the second is the share number.
+		shares[j][0] = Threshold
+		shares[j][1] = byte(j + 1)
 	}
 
 	for i, b := range bs {
@@ -133,7 +136,7 @@ func (ss *shamirSharer) Share(bs []byte) ([][]byte, error) {
 		}
 
 		for j := range shares {
-			shares[j][i+1] = byteShares[j]
+			shares[j][i+2] = byteShares[j]
 		}
 	}
 
@@ -151,20 +154,25 @@ func (ss *shamirSharer) Reassemble(shares [][]byte) ([]byte, error) {
 			return nil, errors.New("Inconsistent share lengths")
 		}
 
-		// The first element of a share is its share number.
-		xs[i] = shares[i][0]
+		// The first element of a share is its share type.
+		if shares[i][0] != Threshold {
+			return nil, errors.New("Bad share type")
+		}
+
+		// The second element of a share is its share number.
+		xs[i] = shares[i][1]
 	}
 
-	secret := make([]byte, l-1)
+	secret := make([]byte, l-2)
 
 	// Reconstruct each byte of the output.
-	for i := 1; i < l; i++ {
+	for i := 2; i < l; i++ {
 		for j := range shares {
 			ys[j] = shares[j][i]
 		}
 
 		var err error
-		secret[i-1], err = ss.recoverByte(xs, ys)
+		secret[i-2], err = ss.recoverByte(xs, ys)
 		if err != nil {
 			return nil, err
 		}
