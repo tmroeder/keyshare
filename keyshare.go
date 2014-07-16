@@ -27,10 +27,15 @@ import (
 	"encoding/base64"
 	"encoding/gob"
 	"errors"
+	"fmt"
+	"image/png"
 	"io"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"strings"
+
+	"code.google.com/p/rsc/qr"
 )
 
 // zeroSlice writes 0 over all the slice elements.
@@ -261,9 +266,9 @@ func assembleAndDecrypt(sharer ByteSharer, authenticatedCiphertext []byte, share
 }
 
 // EncryptFile takes in the name of a file to encrypt, an output file for the
-// ciphertext, a share file for the shares, and the number of shares to create
-// and creates a file encrypted with a fresh key. This key is then shared into
-// shareCount pieces.
+// ciphertext, a share file prefix for the shares, and the number of shares to
+// create and creates a file encrypted with a fresh key. This key is then shared
+// into shareCount pieces.
 func EncryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSharer) error {
 	secretData, err := ioutil.ReadFile(plaintextFile)
 	if err != nil {
@@ -276,25 +281,35 @@ func EncryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSha
 		defer zeroSlice(s)
 	}
 
-	// Encode as Base64 for the file output.
-	cipherString := base64.StdEncoding.EncodeToString(ciphertext)
-	err = ioutil.WriteFile(ciphertextFile, []byte(cipherString), 0600)
+	// Encode as a QR code.
+	code, err := qr.Encode(string(ciphertext), qr.H)
 	if err != nil {
 		return err
 	}
 
-	// Output the shares as well.
-	shareOutput, err := os.Create(shareFile)
+	f, err := os.Create(ciphertextFile + ".png")
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 
-	for _, s := range shares {
-		encodedShare := make([]byte, base64.StdEncoding.EncodedLen(len(s)))
-		defer zeroSlice(encodedShare)
-		base64.StdEncoding.Encode(encodedShare, s)
-		shareOutput.Write(encodedShare)
-		shareOutput.WriteString("\n")
+	if err := png.Encode(f, code.Image()); err != nil {
+		return err
+	}
+
+	for i, s := range shares {
+		fmt.Println(i)
+		// Output the shares as well.
+		shareOutput, err := os.Create(shareFile + strconv.Itoa(i) + ".png")
+		if err != nil {
+			return err
+		}
+		defer shareOutput.Close()
+
+		shareCode, err := qr.Encode(string(s), qr.H)
+		if err := png.Encode(shareOutput, shareCode.Image()); err != nil {
+			return err
+		}
 	}
 
 	return nil
