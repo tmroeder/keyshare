@@ -1,5 +1,5 @@
 // Copyright 2014, Tom Roeder (tmroeder@gmail.com)
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -30,6 +30,7 @@ func main() {
 	var ciphertextFile = flag.String("ciphertext", "", "The path to the encrypted file")
 	var shareFile = flag.String("shares", "", "The path to the shares")
 	var shareCount = flag.Int("share_count", 4, "The number of shares to generate")
+	var shareThreshold = flag.Int("share_threshold", 3, "The number of shares needed to recover the file")
 	var encrypt = flag.Bool("encrypt", false, "Encrypt the plaintext to the ciphertext")
 	var decrypt = flag.Bool("decrypt", false, "Decrypt the ciphertext to the plaintext")
 	flag.Parse()
@@ -51,14 +52,20 @@ func main() {
 		glog.Fatal("Must specify exactly one of --encrypt or --decrypt")
 	}
 
+	t, err := keyshare.NewThresholdSharer(*shareThreshold, *shareCount)
+	if err != nil {
+		glog.Fatal("Couldn't set up threshold encryption for threshold", *shareThreshold,
+			"and share count", *shareCount, ":", err)
+	}
+
 	// Read the data and perform the operation.
 	if *encrypt {
-		err := keyshare.EncryptFile(*plaintextFile, *ciphertextFile, *shareFile, *shareCount)
+		err := keyshare.EncryptFile(*plaintextFile, *ciphertextFile, *shareFile, t)
 		if err != nil {
 			glog.Fatal("Couldn't encrypt the file", *plaintextFile, ":", err)
 		}
 	} else if *decrypt {
-		err := keyshare.DecryptFile(*plaintextFile, *ciphertextFile, *shareFile)
+		err := keyshare.DecryptFile(*plaintextFile, *ciphertextFile, *shareFile, t)
 		if err != nil {
 			glog.Fatal("Couldn't decrypt the file", *ciphertextFile, ":", err)
 		}

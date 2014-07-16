@@ -282,7 +282,8 @@ func EncryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSha
 	}
 
 	// Encode as a QR code.
-	code, err := qr.Encode(string(ciphertext), qr.H)
+	cs := base64.StdEncoding.EncodeToString(ciphertext)
+	code, err := qr.Encode(cs, qr.H)
 	if err != nil {
 		return err
 	}
@@ -306,7 +307,8 @@ func EncryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSha
 		}
 		defer shareOutput.Close()
 
-		shareCode, err := qr.Encode(string(s), qr.H)
+		shareString := base64.StdEncoding.EncodeToString(s)
+		shareCode, err := qr.Encode(shareString, qr.H)
 		if err := png.Encode(shareOutput, shareCode.Image()); err != nil {
 			return err
 		}
