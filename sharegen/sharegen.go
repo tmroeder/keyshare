@@ -30,7 +30,7 @@ func main() {
 	var ciphertextFile = flag.String("ciphertext", "", "The path to the encrypted file")
 	var shareFilePrefix = flag.String("share", "", "The prefix for the share files")
 	var shareCount = flag.Int("count", 4, "The number of shares to generate")
-	var shareThreshold = flag.Int("threshold", 3, "The number of shares needed to recover the file. Set this to 0 to use XOR-based (n, n) sharing.")
+	var shareThreshold = flag.Int("threshold", 0, "The number of shares needed to recover the file. Set this to 0 to use XOR-based (n, n) sharing.")
 	var encrypt = flag.Bool("encrypt", false, "Encrypt the plaintext to the ciphertext")
 	var decrypt = flag.Bool("decrypt", false, "Decrypt the ciphertext to the plaintext")
 	var qr = flag.Bool("qr", false, "Encode the results into PNG QR-code images")
