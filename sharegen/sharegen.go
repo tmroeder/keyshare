@@ -28,11 +28,12 @@ func main() {
 	// Take in a path as input, then generate a random key, encrypt
 	var plaintextFile = flag.String("plaintext", "", "The path to the unencrypted file")
 	var ciphertextFile = flag.String("ciphertext", "", "The path to the encrypted file")
-	var shareFile = flag.String("shares", "", "The path to the shares")
-	var shareCount = flag.Int("share_count", 4, "The number of shares to generate")
-	var shareThreshold = flag.Int("share_threshold", 3, "The number of shares needed to recover the file")
+	var shareFilePrefix = flag.String("share", "", "The prefix for the share files")
+	var shareCount = flag.Int("count", 4, "The number of shares to generate")
+	var shareThreshold = flag.Int("threshold", 3, "The number of shares needed to recover the file. Set this to 0 to use XOR-based (n, n) sharing.")
 	var encrypt = flag.Bool("encrypt", false, "Encrypt the plaintext to the ciphertext")
 	var decrypt = flag.Bool("decrypt", false, "Decrypt the ciphertext to the plaintext")
+	var qr = flag.Bool("qr", false, "Encode the results into PNG QR-code images")
 	flag.Parse()
 
 	// Check the flags to make sure they make sense.
@@ -44,7 +45,7 @@ func main() {
 		glog.Fatal("Must specify a ciphertext file for encrypted output")
 	}
 
-	if len(*shareFile) == 0 {
+	if len(*shareFilePrefix) == 0 {
 		glog.Fatal("Must specify a share file")
 	}
 
@@ -52,22 +53,41 @@ func main() {
 		glog.Fatal("Must specify exactly one of --encrypt or --decrypt")
 	}
 
-	t, err := keyshare.NewThresholdSharer(*shareThreshold, *shareCount)
-	if err != nil {
-		glog.Fatal("Couldn't set up threshold encryption for threshold", *shareThreshold,
-			"and share count", *shareCount, ":", err)
+	var bs keyshare.ByteSharer
+	var err error
+	if *shareThreshold > 0 {
+		bs, err = keyshare.NewThresholdSharer(*shareThreshold, *shareCount)
+		if err != nil {
+			glog.Fatal("Couldn't set up threshold sharing for threshold ", *shareThreshold,
+				" and share count ", *shareCount, ": ", err)
+		}
+	} else {
+		bs, err = keyshare.NewXORSharer(*shareCount)
+		if err != nil {
+			glog.Fatal("Couldn't set up XOR sharing for ", *shareCount, " shares:", err)
+		}
 	}
 
 	// Read the data and perform the operation.
 	if *encrypt {
-		err := keyshare.EncryptFile(*plaintextFile, *ciphertextFile, *shareFile, t)
+		ciphertext, shares, err := keyshare.EncryptFile(*plaintextFile, bs)
 		if err != nil {
-			glog.Fatal("Couldn't encrypt the file", *plaintextFile, ":", err)
+			glog.Fatal("Couldn't encrypt the file ", *plaintextFile, ": ", err)
+		}
+
+		if *qr {
+			if err = keyshare.EncodeToQR(*ciphertextFile, *shareFilePrefix, ciphertext, shares); err != nil {
+				glog.Fatal("Couldn't encode the encryption and shares to QR: ", err)
+			}
+		} else {
+			if err = keyshare.EncodeToBase64(*ciphertextFile, *shareFilePrefix, ciphertext, shares); err != nil {
+				glog.Fatal("Couldn't encode the encryption and shares to Base64: ", err)
+			}
 		}
 	} else if *decrypt {
-		err := keyshare.DecryptFile(*plaintextFile, *ciphertextFile, *shareFile, t)
+		err := keyshare.DecryptFile(*plaintextFile, *ciphertextFile, *shareFilePrefix, *shareCount, bs)
 		if err != nil {
-			glog.Fatal("Couldn't decrypt the file", *ciphertextFile, ":", err)
+			glog.Fatal("Couldn't decrypt the file '", *ciphertextFile, "': ", err)
 		}
 	}
 }

@@ -156,7 +156,7 @@ func (ss *shamirSharer) Reassemble(shares [][]byte) ([]byte, error) {
 
 		// The first element of a share is its share type.
 		if shares[i][0] != Threshold {
-			return nil, errors.New("Bad share type")
+			return nil, errors.New("Bad threshold share type")
 		}
 
 		// The second element of a share is its share number.

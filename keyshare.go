@@ -27,13 +27,11 @@ import (
 	"encoding/base64"
 	"encoding/gob"
 	"errors"
-	"fmt"
 	"image/png"
 	"io"
 	"io/ioutil"
 	"os"
 	"strconv"
-	"strings"
 
 	"code.google.com/p/rsc/qr"
 )
@@ -119,7 +117,7 @@ func (f *fullSharer) Reassemble(shares [][]byte) ([]byte, error) {
 
 	for _, share := range shares {
 		if share[0] != XOR {
-			return nil, errors.New("Bad share type")
+			return nil, errors.New("Bad full share type")
 		}
 
 		for j := 1; j < len(share); j++ {
@@ -144,10 +142,10 @@ type AuthCiphertext struct {
 	Hmac       []byte
 }
 
-// encryptAndSharePlaintext generates a fresh key, uses it to encrypt the
+// EncryptAndSharePlaintext generates a fresh key, uses it to encrypt the
 // plaintext, shares the key, zeroes it, and returns the ciphertext and the key
 // shares to be distributed.
-func encryptAndShare(sharer ByteSharer, plaintext []byte) ([]byte, [][]byte, error) {
+func EncryptAndShare(sharer ByteSharer, plaintext []byte) ([]byte, [][]byte, error) {
 	// We generate our secret, random key from /dev/urandom. No, really. It's OK.
 	// On any system you trust enough to run this program, the output from
 	// /dev/urandom will be strong enough for cryptographic purposes.
@@ -210,9 +208,9 @@ func encryptAndShare(sharer ByteSharer, plaintext []byte) ([]byte, [][]byte, err
 	return authenticatedCiphertext, shares, nil
 }
 
-// assembleAndDecrypt reassembles a key from a set of shares and uses this key
+// ReassembleAndDecrypt reassembles a key from a set of shares and uses this key
 // to authenticate and decrypt a ciphertext.
-func assembleAndDecrypt(sharer ByteSharer, authenticatedCiphertext []byte, shares [][]byte) ([]byte, error) {
+func ReassembleAndDecrypt(sharer ByteSharer, authenticatedCiphertext []byte, shares [][]byte) ([]byte, error) {
 	// Reassemble the key and use that to check the HMAC
 	key, err := sharer.Reassemble(shares)
 	if err != nil {
@@ -265,22 +263,13 @@ func assembleAndDecrypt(sharer ByteSharer, authenticatedCiphertext []byte, share
 	return plaintext, nil
 }
 
-// EncryptFile takes in the name of a file to encrypt, an output file for the
-// ciphertext, a share file prefix for the shares, and the number of shares to
-// create and creates a file encrypted with a fresh key. This key is then shared
-// into shareCount pieces.
-func EncryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSharer) error {
-	secretData, err := ioutil.ReadFile(plaintextFile)
-	if err != nil {
-		return err
-	}
-	defer zeroSlice(secretData)
-
-	ciphertext, shares, err := encryptAndShare(sharer, secretData)
-	for _, s := range shares {
-		defer zeroSlice(s)
-	}
-
+// EncodeToQR creates a QR-code representation of the ciphertext and shares and
+// writes them to PNG files. The share files are of the form
+// shareFilePrefix[0-9]+.png.  The files must be decoded by an external QR
+// decoder before being passed to DecryptFile. Encoding to QR codes is used here
+// to add a Reed-Solomon error-correcting code and to make it easier to get a
+// printed version of the code back into digital form.
+func EncodeToQR(ciphertextFile, shareFilePrefix string, ciphertext []byte, shares [][]byte) error {
 	// Encode as a QR code.
 	cs := base64.StdEncoding.EncodeToString(ciphertext)
 	code, err := qr.Encode(cs, qr.H)
@@ -299,9 +288,7 @@ func EncryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSha
 	}
 
 	for i, s := range shares {
-		fmt.Println(i)
-		// Output the shares as well.
-		shareOutput, err := os.Create(shareFile + strconv.Itoa(i) + ".png")
+		shareOutput, err := os.Create(shareFilePrefix + strconv.Itoa(i) + ".png")
 		if err != nil {
 			return err
 		}
@@ -317,23 +304,61 @@ func EncryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSha
 	return nil
 }
 
-// DecryptFile takes in the name of a output file, a file to decrypt, and a file
-// of shares, one per line. It decrypts the encrypted file into the output file
-// or reports an error.
-func DecryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSharer) error {
-	// Get the shares from the file.
-	sharesString, err := ioutil.ReadFile(shareFile)
-	if err != nil {
+// EncodeToBase64 creates a base64 representation of the ciphertext and shares
+// and writes them to files. The share files are of the form
+// shareFilePrefix[0-9]+.
+func EncodeToBase64(ciphertextFile, shareFilePrefix string, ciphertext []byte, shares [][]byte) error {
+	cs := base64.StdEncoding.EncodeToString(ciphertext)
+	if err := ioutil.WriteFile(ciphertextFile, []byte(cs), 0600); err != nil {
 		return err
 	}
 
-	// The shares are stored one per line.
-	trimmedSharesString := strings.TrimSpace(string(sharesString))
-	shareStrings := strings.Split(trimmedSharesString, "\n")
-	shares := make([][]byte, len(shareStrings))
-	encoding := base64.StdEncoding
-	for i, ss := range shareStrings {
-		shares[i], err = encoding.DecodeString(ss)
+	for i, s := range shares {
+		shareString := base64.StdEncoding.EncodeToString(s)
+		if err := ioutil.WriteFile(shareFilePrefix+strconv.Itoa(i), []byte(shareString), 0600); err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
+// EncryptFile takes in the name of a file to encrypt, an output file for the
+// ciphertext, a share file prefix for the shares, and the number of shares to
+// create and creates a file encrypted with a fresh key. This key is then shared
+// into shareCount pieces.
+func EncryptFile(plaintextFile string, sharer ByteSharer) ([]byte, [][]byte, error) {
+	secretData, err := ioutil.ReadFile(plaintextFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer zeroSlice(secretData)
+
+	return EncryptAndShare(sharer, secretData)
+}
+
+// DecryptFile takes in the name of a output file, a file to decrypt, and a
+// share-file prefix. It decrypts the encrypted file into the output file or
+// reports an error. The shares must be named starting with the shareFilePrefix
+// and numbered from 0. For example, if the prefix is "s" and the shareCount is
+// 4, then the files must be s0, s1, s2, and s3.
+func DecryptFile(plaintextFile, ciphertextFile, shareFilePrefix string, shareCount int, sharer ByteSharer) error {
+	var err error
+	se := base64.StdEncoding
+	shares := make([][]byte, shareCount)
+	for i := range shares {
+		s, err := ioutil.ReadFile(shareFilePrefix + strconv.Itoa(i))
+		if err != nil {
+			return err
+		}
+		defer zeroSlice(s)
+
+		shares[i] = make([]byte, se.DecodedLen(len(s)))
+		if _, err = se.Decode(shares[i], s); err != nil {
+			return err
+		}
+
 		defer zeroSlice(shares[i])
 	}
 
@@ -342,9 +367,13 @@ func DecryptFile(plaintextFile, ciphertextFile, shareFile string, sharer ByteSha
 		return err
 	}
 
-	cipherBytes := make([]byte, encoding.DecodedLen(len(ciphertext)))
-	_, err = encoding.Decode(cipherBytes, ciphertext)
-	plaintext, err := assembleAndDecrypt(sharer, cipherBytes, shares)
+	cipherBytes := make([]byte, base64.StdEncoding.DecodedLen(len(ciphertext)))
+	_, err = base64.StdEncoding.Decode(cipherBytes, ciphertext)
+	if err != nil {
+		return err
+	}
+
+	plaintext, err := ReassembleAndDecrypt(sharer, cipherBytes, shares)
 	if err != nil {
 		return err
 	}
