@@ -74,7 +74,7 @@ func shareKeyHelper(count, length int) bool {
 		return false
 	}
 
-	for i, _ := range reassembledKey {
+	for i := range reassembledKey {
 		if reassembledKey[i] != key[i] {
 			return false
 		}
@@ -131,7 +131,7 @@ func encryptHelper(count, length int) bool {
 		return false
 	}
 
-	for i, _ := range plaintext {
+	for i := range plaintext {
 		if plaintext[i] != decrypted[i] {
 			return false
 		}

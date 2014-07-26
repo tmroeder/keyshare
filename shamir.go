@@ -29,6 +29,8 @@ type shamirSharer struct {
 	n int
 }
 
+// NewThresholdSharer produces a ByteSharer that performs Shamir's threshold
+// secret-sharing scheme.
 func NewThresholdSharer(t, n int) (ByteSharer, error) {
 	if t > 255 {
 		return nil, errors.New("can't have more than 255 shares")
@@ -80,7 +82,7 @@ func (ss *shamirSharer) shareByte(b byte) ([]byte, error) {
 // evaluatePoly evaluates a polynomial with coefficients in GF(256).
 func evaluatePoly(poly []byte, v byte, f *gf256.Field) byte {
 	var pow byte = 1
-	var acc byte = 0
+	var acc byte
 	for _, b := range poly {
 		acc = f.Add(acc, f.Mul(pow, b))
 		pow = f.Mul(pow, v)
@@ -99,7 +101,7 @@ func (ss *shamirSharer) recoverByte(xs, ys []byte) (byte, error) {
 	// The byte can be recovered from the derived formula
 	// sum_i(y_i prod_{j != i}(x_j / (x_i + x_j))), which follows in
 	// characteristic 2 by setting x to 0 in the Lagrange polynomial form.
-	var acc byte = 0
+	var acc byte
 	for i, yi := range ys {
 		var prod byte = 1
 		xi := xs[i]

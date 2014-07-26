@@ -38,7 +38,7 @@ import (
 
 // zeroSlice writes 0 over all the slice elements.
 func zeroSlice(slice []byte) {
-	for i, _ := range slice {
+	for i := range slice {
 		slice[i] = 0
 	}
 }
@@ -63,6 +63,7 @@ func NewXORSharer(n int) (ByteSharer, error) {
 	return &fullSharer{n}, nil
 }
 
+// These constants represent the supported types of secret sharing.
 const (
 	XOR byte = iota
 	Threshold
@@ -82,7 +83,7 @@ func (f *fullSharer) Share(key []byte) ([][]byte, error) {
 	shares := make([][]byte, f.shareCount)
 	keySize := len(key)
 
-	for i, _ := range shares {
+	for i := range shares {
 		shares[i] = make([]byte, keySize+1)
 		shares[i][0] = XOR
 		if i < f.shareCount-1 {
@@ -142,9 +143,9 @@ type AuthCiphertext struct {
 	Hmac       []byte
 }
 
-// EncryptAndSharePlaintext generates a fresh key, uses it to encrypt the
-// plaintext, shares the key, zeroes it, and returns the ciphertext and the key
-// shares to be distributed.
+// EncryptAndShare generates a fresh key, uses it to encrypt the plaintext,
+// shares the key, zeroes it, and returns the ciphertext and the key shares to
+// be distributed.
 func EncryptAndShare(sharer ByteSharer, plaintext []byte) ([]byte, [][]byte, error) {
 	// We generate our secret, random key from /dev/urandom. No, really. It's OK.
 	// On any system you trust enough to run this program, the output from
