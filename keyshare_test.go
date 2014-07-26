@@ -15,7 +15,12 @@
 package keyshare
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha512"
+	"encoding/gob"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -252,5 +257,149 @@ func TestEncryptFile(t *testing.T) {
 		if err := quick.Check(encryptFileHelper, nil); err != nil {
 			t.Error(err)
 		}
+	}
+}
+
+func TestInvalidXORSharer(t *testing.T) {
+	if _, err := NewXORSharer(0); err == nil {
+		t.Fatal("Incorrectly succeeded at creating an XOR sharer for 0 shares")
+	}
+
+	if _, err := NewXORSharer(-1); err == nil {
+		t.Fatal("Incorrectly succeeded at creating an XOR sharer for -1 shares")
+	}
+}
+
+func TestIncorrectXORShares(t *testing.T) {
+	bs, err := NewXORSharer(2)
+	if err != nil {
+		t.Fatal("Couldn't create a new XOR sharer:", err)
+	}
+
+	plaintext := []byte(`test plaintext`)
+	authEncrypted, shares, err := EncryptAndShare(bs, plaintext)
+	if err != nil {
+		t.Fatal("Couldn't encrypt and share the plaintext:", err)
+	}
+
+	// Give an invalid share type value to the first share.
+	shares[0][0] = 255
+	if _, err = ReassembleAndDecrypt(bs, authEncrypted, shares); err == nil {
+		t.Fatal("Incorrectly succeeded at reassembling and decrypting the plaintext")
+	}
+}
+
+func TestCiphertextDecodingError(t *testing.T) {
+	bs, err := NewXORSharer(2)
+	if err != nil {
+		t.Fatal("Couldn't create a new XOR sharer:", err)
+	}
+
+	plaintext := []byte(`test plaintext`)
+	authEncrypted, shares, err := EncryptAndShare(bs, plaintext)
+	if err != nil {
+		t.Fatal("Couldn't encrypt and share the plaintext:", err)
+	}
+
+	if _, err := rand.Read(authEncrypted[:10]); err != nil {
+		t.Fatal("Couldn't write over the first 10 bytes of the encrypted data")
+	}
+
+	if _, err = ReassembleAndDecrypt(bs, authEncrypted, shares); err == nil {
+		t.Fatal("Incorrectly succeeded at decoding the gob-encoded ciphertext")
+	}
+}
+
+func TestAuthError(t *testing.T) {
+	bs, err := NewXORSharer(2)
+	if err != nil {
+		t.Fatal("Couldn't create a new XOR sharer:", err)
+	}
+
+	plaintext := []byte(`test plaintext`)
+	authEncrypted, shares, err := EncryptAndShare(bs, plaintext)
+	if err != nil {
+		t.Fatal("Couldn't encrypt and share the plaintext:", err)
+	}
+
+	// Decode the ciphertext blob and clobber the HMAC, then re-encode.
+	abuf := bytes.NewBuffer(authEncrypted)
+	dec := gob.NewDecoder(abuf)
+
+	var ac AuthCiphertext
+	err = dec.Decode(&ac)
+	if err != nil {
+		t.Fatal("Couldn't decode the auth ciphertext")
+	}
+
+	if _, err := rand.Read(ac.Hmac); err != nil {
+		t.Fatal("Couldn't write over the HMAC:", err)
+	}
+
+	var abuf2 bytes.Buffer
+	aencoder := gob.NewEncoder(&abuf2)
+	if err = aencoder.Encode(ac); err != nil {
+		t.Fatal("Couldn't re-encode the bytes:", err)
+	}
+	authenticatedCiphertext := abuf2.Bytes()
+
+	if _, err = ReassembleAndDecrypt(bs, authenticatedCiphertext, shares); err == nil {
+		t.Fatal("Incorrectly succeeded at checking the HMAC of the ciphertext")
+	}
+}
+
+func TestCipherDecodeError(t *testing.T) {
+	bs, err := NewXORSharer(2)
+	if err != nil {
+		t.Fatal("Couldn't create a new XOR sharer:", err)
+	}
+
+	plaintext := []byte(`test plaintext`)
+	authEncrypted, shares, err := EncryptAndShare(bs, plaintext)
+	if err != nil {
+		t.Fatal("Couldn't encrypt and share the plaintext:", err)
+	}
+
+	// Get the key so we can HMAC the garbled ciphertext bytes.
+	key, err := bs.Reassemble(shares)
+	if err != nil {
+		t.Fatal("Couldn't reassemble the key from the shares")
+	}
+
+	// Decode the ciphertext blob and clobber the ciphertext and re-HMAC it.
+	abuf := bytes.NewBuffer(authEncrypted)
+	dec := gob.NewDecoder(abuf)
+
+	var ac AuthCiphertext
+	err = dec.Decode(&ac)
+	if err != nil {
+		t.Fatal("Couldn't decode the auth ciphertext")
+	}
+
+	if _, err := rand.Read(ac.Ciphertext); err != nil {
+		t.Fatal("Couldn't write over the HMAC:", err)
+	}
+
+	h := hmac.New(sha512.New, key[2*aes.BlockSize:])
+	ac.Hmac = h.Sum(ac.Ciphertext)
+
+	var abuf2 bytes.Buffer
+	aencoder := gob.NewEncoder(&abuf2)
+	if err = aencoder.Encode(ac); err != nil {
+		t.Fatal("Couldn't re-encode the bytes:", err)
+	}
+	authenticatedCiphertext := abuf2.Bytes()
+
+	// It's possible for the decoding process to panic because the random data
+	// represents an invalid pointer. In that case, this recover method will catch
+	// the panic and let the test succeed.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Log("Recovered from a decoding error, as expected")
+		}
+	}()
+
+	if _, err = ReassembleAndDecrypt(bs, authenticatedCiphertext, shares); err == nil {
+		t.Fatal("Incorrectly succeeded at checking the HMAC of the ciphertext")
 	}
 }

@@ -28,7 +28,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"image/png"
-	"io"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -76,10 +75,6 @@ const (
 // from the share they hold, but that the combination of all 4 shares by XOR
 // is the key.
 func (f *fullSharer) Share(key []byte) ([][]byte, error) {
-	if f.shareCount <= 0 {
-		return nil, errors.New("Can't create a non-positive number of shares")
-	}
-
 	shares := make([][]byte, f.shareCount)
 	keySize := len(key)
 
@@ -88,7 +83,7 @@ func (f *fullSharer) Share(key []byte) ([][]byte, error) {
 		shares[i][0] = XOR
 		if i < f.shareCount-1 {
 			// Read a random value into this share.
-			if _, err := io.ReadFull(rand.Reader, shares[i][1:]); err != nil {
+			if _, err := rand.Read(shares[i][1:]); err != nil {
 				return nil, err
 			}
 		} else {
@@ -156,7 +151,7 @@ func EncryptAndShare(sharer ByteSharer, plaintext []byte) ([]byte, [][]byte, err
 	aesKeyLength256 := 2 * aes.BlockSize
 	keySize := aesKeyLength256 + sha512.Size
 	key := make([]byte, keySize)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+	if _, err := rand.Read(key); err != nil {
 		return nil, nil, err
 	}
 
@@ -177,7 +172,7 @@ func EncryptAndShare(sharer ByteSharer, plaintext []byte) ([]byte, [][]byte, err
 	ciphertext.Enciphered = make([]byte, len(plaintext))
 
 	// Get the iv as a slice of the second part of the ciphertext.
-	if _, err = io.ReadFull(rand.Reader, ciphertext.IV); err != nil {
+	if _, err = rand.Read(ciphertext.IV); err != nil {
 		return nil, nil, err
 	}
 
@@ -196,12 +191,13 @@ func EncryptAndShare(sharer ByteSharer, plaintext []byte) ([]byte, [][]byte, err
 	ac.Ciphertext = cbuf.Bytes()
 
 	h := hmac.New(sha512.New, hmacKey)
-	h.Write(ac.Ciphertext)
-	ac.Hmac = h.Sum(nil)
+	ac.Hmac = h.Sum(ac.Ciphertext)
 
 	var abuf bytes.Buffer
 	aencoder := gob.NewEncoder(&abuf)
-	err = aencoder.Encode(ac)
+	if err = aencoder.Encode(ac); err != nil {
+		return nil, nil, err
+	}
 	authenticatedCiphertext := abuf.Bytes()
 
 	shares, err := sharer.Share(key)
@@ -234,8 +230,7 @@ func ReassembleAndDecrypt(sharer ByteSharer, authenticatedCiphertext []byte, sha
 	}
 
 	h := hmac.New(sha512.New, hmacKey)
-	h.Write(ac.Ciphertext)
-	computedMac := h.Sum(nil)
+	computedMac := h.Sum(ac.Ciphertext)
 	if subtle.ConstantTimeCompare(ac.Hmac, computedMac) != 1 {
 		err = errors.New("Authentication failure")
 		return nil, err
