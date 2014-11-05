@@ -61,7 +61,6 @@ func TestRecovery(t *testing.T) {
 	defer os.RemoveAll(tempdir)
 
 	plaintextFile := path.Join(tempdir, "plaintext")
-	//decryptedFile := path.Join(tempdir, "decrypted")
 	ciphertextFile := path.Join(tempdir, "ciphertext")
 	sharesPrefix := path.Join(tempdir, "shares")
 
@@ -106,6 +105,7 @@ func TestRecovery(t *testing.T) {
 		t.Fatal("The recovered ciphertext didn't match the original ciphertext")
 	}
 
+	recoveredShares := make([][]byte, len(shares))
 	for i := range shares {
 		shareFile := sharesPrefix + strconv.Itoa(i) + ".png"
 		scmdArgs := make([]string, len(decodeQRArgs)+1)
@@ -116,12 +116,21 @@ func TestRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal("Couldn't run the QR decoding command to get share", i, ":", err)
 		}
-		recoveredShare, err := base64.StdEncoding.DecodeString(string(shareBase64))
+		recoveredShares[i], err = base64.StdEncoding.DecodeString(string(shareBase64))
 		if err != nil {
 			t.Fatal("The base64 share", i, "didn't decode properly:", err)
 		}
-		if !bytes.Equal(recoveredShare, shares[i]) {
+		if !bytes.Equal(recoveredShares[i], shares[i]) {
 			t.Fatal("Recovered share", i, "didn't match the original")
 		}
+	}
+
+	decrypted, err := ReassembleAndDecrypt(bs, recoveredCiphertext, recoveredShares)
+	if err != nil {
+		t.Fatal("Couldn't decrypt using the recovered shares")
+	}
+
+	if bytes.Compare(decrypted, plaintext) != 0 {
+		t.Fatal("Failed to decrypt correctly")
 	}
 }

@@ -15,6 +15,7 @@
 package keyshare
 
 import (
+	"bytes"
 	"crypto/rand"
 	"testing"
 )
@@ -29,7 +30,6 @@ func TestShareByte(t *testing.T) {
 
 	ss := bs.(*shamirSharer)
 
-	// IAH: port the tests to be separate and to use the new framework
 	ys, err := ss.shareByte(b)
 	if err != nil {
 		t.Fatal(err.Error())
@@ -115,14 +115,8 @@ func TestShareSlice(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	if len(b2) != len(b) {
-		t.Fatal("Invalid recovered length")
-	}
-
-	for i := range b {
-		if b[i] != b2[i] {
-			t.Fatal("Incorrect recovered bytes")
-		}
+	if bytes.Compare(b2, b) != 0 {
+		t.Fatal("Couldn't recover the second set of bytes")
 	}
 
 	// Recover with only 3 of the 5 shares.
@@ -131,13 +125,7 @@ func TestShareSlice(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	if len(b3) != len(b) {
-		t.Fatal("Invalid recovered length")
-	}
-
-	for i := range b {
-		if b[i] != b3[i] {
-			t.Fatal("Incorrect recovered bytes")
-		}
+	if bytes.Compare(b3, b) != 0 {
+		t.Fatal("Couldn't recover the third set of bytes")
 	}
 }

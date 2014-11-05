@@ -22,17 +22,18 @@ import (
 	"crypto/sha512"
 	"encoding/gob"
 	"fmt"
-	"io"
 	"io/ioutil"
+	mrand "math/rand"
 	"os"
 	"testing"
 	"testing/quick"
+	"time"
 )
 
 func TestZeroSlice(t *testing.T) {
 	randBytes := make([]byte, 50)
-	if _, err := io.ReadFull(rand.Reader, randBytes); err != nil {
-		t.Error(err)
+	if _, err := rand.Read(randBytes); err != nil {
+		t.Fatal(err)
 	}
 
 	zeroSlice(randBytes)
@@ -43,19 +44,12 @@ func TestZeroSlice(t *testing.T) {
 	}
 }
 
-func shareKeyHelper(count, length int) bool {
-	realCount := count % 200
-	if realCount < 0 {
-		realCount = -realCount
-	}
-
-	realLength := length % 65536
-	if realLength < 0 {
-		realLength = -realLength
-	}
+func shareKeyHelper(count, length uint) bool {
+	realCount := int(count % 200)
+	realLength := int(length % 65536)
 
 	key := make([]byte, realLength)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+	if _, err := rand.Read(key); err != nil {
 		return false
 	}
 
@@ -75,17 +69,7 @@ func shareKeyHelper(count, length int) bool {
 		return false
 	}
 
-	if len(reassembledKey) != len(key) {
-		return false
-	}
-
-	for i := range reassembledKey {
-		if reassembledKey[i] != key[i] {
-			return false
-		}
-	}
-
-	return true
+	return bytes.Compare(reassembledKey, key) == 0
 }
 
 func TestShareKey(t *testing.T) {
@@ -100,20 +84,14 @@ func TestShareKey(t *testing.T) {
 	}
 }
 
-func encryptHelper(count, length int) bool {
-	realCount := count % 200
-	if realCount < 0 {
-		realCount = -realCount
-	}
+func encryptHelper(count, length uint) bool {
+	realCount := int(count % 200)
 
 	// Test plaintext sizes up to about 30 MB.
-	realLength := length % (1 << 25)
-	if realLength < 0 {
-		realLength = -realLength
-	}
+	realLength := int(length % (1 << 25))
 
 	plaintext := make([]byte, realLength)
-	if _, err := io.ReadFull(rand.Reader, plaintext); err != nil {
+	if _, err := rand.Read(plaintext); err != nil {
 		return false
 	}
 
@@ -132,49 +110,31 @@ func encryptHelper(count, length int) bool {
 		return false
 	}
 
-	if len(decrypted) != len(plaintext) {
-		return false
-	}
-
-	for i := range plaintext {
-		if plaintext[i] != decrypted[i] {
-			return false
-		}
-	}
-
-	return true
+	return bytes.Compare(decrypted, plaintext) == 0
 }
 
 func TestEncryptAndShare(t *testing.T) {
+	cfg := &quick.Config{
+		Rand: mrand.New(mrand.NewSource(time.Now().UnixNano())),
+	}
 	if testing.Short() {
-		if !encryptHelper(10, 1024*1024) {
-			t.Fatal("Couldn't encrypt a 1MB plaintext")
-		}
-	} else {
-		if err := quick.Check(encryptHelper, nil); err != nil {
-			t.Error(err)
-		}
+		cfg.MaxCount = 3
+	}
+	if err := quick.Check(encryptHelper, cfg); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func encryptFileHelper(count, length int, failure bool) bool {
+func encryptFileHelper(count, length uint, failure bool) bool {
 	// Test plaintext sizes up to about 30 MB.
-	realLength := length % (1 << 25)
-	if realLength < 0 {
-		realLength = -realLength
-	}
-
-	realCount := count % 200
-	if realCount < 0 {
-		realCount = -realCount
-	}
+	realLength := int(length % (1 << 25))
+	realCount := int(count % 200)
 
 	// Create a temporary directory for the files
 	tempdir, err := ioutil.TempDir("", "keyshare_test")
 	if err != nil {
 		return false
 	}
-
 	defer os.RemoveAll(tempdir)
 
 	plaintextFile := tempdir + string(os.PathSeparator) + "plaintext"
@@ -183,7 +143,7 @@ func encryptFileHelper(count, length int, failure bool) bool {
 	sharesFile := tempdir + string(os.PathSeparator) + "shares"
 
 	plaintext := make([]byte, realLength)
-	if _, err := io.ReadFull(rand.Reader, plaintext); err != nil {
+	if _, err := rand.Read(plaintext); err != nil {
 		return false
 	}
 
@@ -214,7 +174,7 @@ func encryptFileHelper(count, length int, failure bool) bool {
 		}
 
 		garbageBytes := make([]byte, 10)
-		if _, err = io.ReadFull(rand.Reader, garbageBytes); err != nil {
+		if _, err = rand.Read(garbageBytes); err != nil {
 			return false
 		}
 
@@ -249,14 +209,14 @@ func encryptFileHelper(count, length int, failure bool) bool {
 }
 
 func TestEncryptFile(t *testing.T) {
+	cfg := &quick.Config{
+		Rand: mrand.New(mrand.NewSource(time.Now().UnixNano())),
+	}
 	if testing.Short() {
-		if !encryptFileHelper(10, 1024, false) {
-			t.Fatal("Couldn't encrypt a 1MB plaintext")
-		}
-	} else {
-		if err := quick.Check(encryptFileHelper, nil); err != nil {
-			t.Error(err)
-		}
+		cfg.MaxCount = 3
+	}
+	if err := quick.Check(encryptFileHelper, cfg); err != nil {
+		t.Fatal(err)
 	}
 }
 
