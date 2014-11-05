@@ -26,7 +26,7 @@ To produce QR-code PNG files for the ciphertext and the shares instead of
 base64-encoded files, use the parameter `-qr`. Note that you must use an
 external QR decoding tool to extract the base64-encoded ciphertext and shares to
 decrypt the data. The main advantages of the QR code is that it adds
-Reed-Solomon error-correcting codes and it is easier to extract as digital data
-from printed files.
+Reed-Solomon error-correcting codes and it is easier to extract than digital
+data from printed files.
 
 See `sharegen -help` for more details.
